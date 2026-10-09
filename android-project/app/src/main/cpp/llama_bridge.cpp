@@ -29,18 +29,20 @@ Java_com_offlineknowledge_app_engine_LlamaNative_loadModel(
     }
 
     const char* path = env->GetStringUTFChars(modelPath, nullptr);
-    LOGI("Loading GGUF model from: %s (n_ctx: %d, n_threads: %d)", path, nCtx, nThreads);
+    if (!path) return JNI_FALSE;
+    std::string path_str(path);
+    env->ReleaseStringUTFChars(modelPath, path);
+
+    LOGI("Loading GGUF model from: %s (n_ctx: %d, n_threads: %d)", path_str.c_str(), nCtx, nThreads);
 
     llama_backend_init();
 
     llama_model_params mparams = llama_model_default_params();
     // In ARM / mobile Helio G81 Ultra, CPU threads 4-6
-    g_model = llama_model_load_from_file(path, mparams);
-
-    env->ReleaseStringUTFChars(modelPath, path);
+    g_model = llama_model_load_from_file(path_str.c_str(), mparams);
 
     if (!g_model) {
-        LOGE("Failed to load model from file: %s", path);
+        LOGE("Failed to load model from file: %s", path_str.c_str());
         return JNI_FALSE;
     }
 
