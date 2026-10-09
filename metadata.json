@@ -1,0 +1,6 @@
+{
+  "name": "Offline Knowledge — Офлайн-справочник с локальной LLM",
+  "description": "Персональный офлайн-справочник знаний с локальной языковой моделью (Qwen2.5 GGUF / llama.cpp) для Android (HONOR NIC-LX1): мгновенный поиск, проверенная база математики и величин, полный код Kotlin + Jetpack Compose.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
