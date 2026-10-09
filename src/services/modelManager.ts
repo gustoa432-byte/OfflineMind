@@ -2,44 +2,38 @@ import { ModelInfo, ModelInstallProgress, ModelInstallStatus } from '../types';
 
 export const AVAILABLE_MODELS: ModelInfo[] = [
   {
-    id: 'qwen2.5-1.5b-instruct-q4_k_m',
-    name: 'Qwen 2.5 1.5B Instruct',
-    tag: 'Основной кандидат (Рекомендуется)',
-    filename: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
-    sizeBytes: 986420120, // ~940 MB
-    sizeFormatted: '940.7 МБ',
-    format: 'GGUF Q4_K_M',
-    parameters: '1.54 млрд',
-    contextLength: 2048,
-    expectedRamMb: 1250,
-    sha256: 'e83a79d0411b42ef0fcf4235c3653198f3eac157dfc924bc912386a65f972b91',
-    downloadUrl: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
-    recommendedForDevice: true,
-    notes: 'Превосходное понимание терминологии и падежей русского языка. Оптимизирован под 6 ГБ RAM устройства HONOR NIC-LX1.'
-  },
-  {
     id: 'qwen2.5-0.5b-instruct-q4_k_m',
     name: 'Qwen 2.5 0.5B Instruct',
-    tag: 'Резервный ультра-компактный',
+    tag: 'Компактный тестовый кандидат (Рекомендуется)',
     filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
-    sizeBytes: 392100800, // ~374 MB
-    sizeFormatted: '373.9 МБ',
+    sizeBytes: 491400032, // 468.6 MB verified HuggingFace size
+    sizeFormatted: '468.6 МБ',
     format: 'GGUF Q4_K_M',
     parameters: '0.49 млрд',
     contextLength: 2048,
     expectedRamMb: 580,
-    sha256: '72ca6e695bfa05256e7e4cfcf650b86a34c2c525f2061dc137ce74a3f5c907d8',
+    sha256: '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db',
     downloadUrl: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
-    recommendedForDevice: false,
-    notes: 'Минимальное потребление памяти (до 600 МБ). Идеален при экстремальной нехватке ОЗУ.'
+    recommendedForDevice: true,
+    notes: 'Ультра-быстрый инференс на MediaTek Helio G81 Ultra. Минимальное потребление памяти (~550 МБ RAM). Проверен на устройстве.'
+  },
+  {
+    id: 'qwen2.5-1.5b-instruct-q4_k_m',
+    name: 'Qwen 2.5 1.5B Instruct',
+    tag: 'Основной кандидат (1.5B)',
+    filename: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    sizeBytes: 1117320736, // 1065.6 MB verified HuggingFace size
+    sizeFormatted: '1.04 ГБ',
+    format: 'GGUF Q4_K_M',
+    parameters: '1.54 млрд',
+    contextLength: 2048,
+    expectedRamMb: 1350,
+    sha256: '6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e',
+    downloadUrl: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    recommendedForDevice: true,
+    notes: 'Высокая точность математических определений и физических величин. Оптимизирован под 6 ГБ RAM устройства HONOR NIC-LX1.'
   }
 ];
-
-const STORAGE_KEYS = {
-  ACTIVE_MODEL_ID: 'offline_knowledge_active_model_id',
-  MODEL_INSTALLED_PREFIX: 'offline_knowledge_installed_',
-  DOWNLOAD_PROGRESS_PREFIX: 'offline_knowledge_progress_'
-};
 
 export class ModelManager {
   private static instance: ModelManager;
@@ -48,27 +42,39 @@ export class ModelManager {
   private progressListeners: ((progress: ModelInstallProgress) => void)[] = [];
   private downloadAbortController: AbortController | null = null;
   private isModelLoadedInRam = false;
+  private isCheckingDisk = false;
 
   private constructor() {
-    const savedModelId = localStorage.getItem(STORAGE_KEYS.ACTIVE_MODEL_ID);
-    this.activeModel = AVAILABLE_MODELS.find(m => m.id === savedModelId) || AVAILABLE_MODELS[0];
-    
-    // Check if previously installed
-    const isInstalled = localStorage.getItem(STORAGE_KEYS.MODEL_INSTALLED_PREFIX + this.activeModel.id) === 'true';
-    
+    this.activeModel = AVAILABLE_MODELS[0];
     this.currentProgress = {
-      status: isInstalled ? 'ready' : 'not_installed',
-      percentage: isInstalled ? 100 : 0,
-      downloadedBytes: isInstalled ? this.activeModel.sizeBytes : 0,
+      status: 'not_installed',
+      percentage: 0,
+      downloadedBytes: 0,
       totalBytes: this.activeModel.sizeBytes,
       speedBytesPerSec: 0,
       timeRemainingSec: 0,
-      currentStepDescription: isInstalled ? 'Модель установлена и готова к работе' : 'Требуется первоначальная установка модели'
+      currentStepDescription: 'Проверка наличия файла модели на диске...'
     };
 
-    if (isInstalled) {
-      this.isModelLoadedInRam = true;
+    // Listen to Android WebView events if running inside native app
+    if (typeof window !== 'undefined') {
+      window.addEventListener('onDownloadStateChanged', (e: any) => {
+        const detail = e.detail;
+        if (!detail) return;
+        this.handleNativeDownloadState(detail);
+      });
+
+      window.addEventListener('onModelLoadedChanged', (e: any) => {
+        const detail = e.detail;
+        if (detail && typeof detail.success === 'boolean') {
+          this.isModelLoadedInRam = detail.success;
+          this.notifyListeners();
+        }
+      });
     }
+
+    // Verify real file status on disk on init
+    this.verifyModelStatusOnDisk();
   }
 
   public static getInstance(): ModelManager {
@@ -82,24 +88,23 @@ export class ModelManager {
     return this.activeModel;
   }
 
-  public setActiveModel(model: ModelInfo): void {
+  public async setActiveModel(model: ModelInfo): Promise<void> {
     if (this.currentProgress.status === 'downloading') {
       this.pauseOrCancelDownload();
     }
     this.activeModel = model;
-    localStorage.setItem(STORAGE_KEYS.ACTIVE_MODEL_ID, model.id);
-    const isInstalled = localStorage.getItem(STORAGE_KEYS.MODEL_INSTALLED_PREFIX + model.id) === 'true';
     this.currentProgress = {
-      status: isInstalled ? 'ready' : 'not_installed',
-      percentage: isInstalled ? 100 : 0,
-      downloadedBytes: isInstalled ? model.sizeBytes : 0,
+      status: 'not_installed',
+      percentage: 0,
+      downloadedBytes: 0,
       totalBytes: model.sizeBytes,
       speedBytesPerSec: 0,
       timeRemainingSec: 0,
-      currentStepDescription: isInstalled ? 'Модель установлена и готова к работе' : 'Требуется первоначальная установка модели'
+      currentStepDescription: 'Проверка статуса модели...'
     };
-    this.isModelLoadedInRam = isInstalled;
+    this.isModelLoadedInRam = false;
     this.notifyListeners();
+    await this.verifyModelStatusOnDisk();
   }
 
   public getProgress(): ModelInstallProgress {
@@ -114,16 +119,257 @@ export class ModelManager {
     return this.isModelLoadedInRam;
   }
 
-  public unloadFromRam(): void {
+  public async verifyModelStatusOnDisk(): Promise<void> {
+    if (this.isCheckingDisk) return;
+    this.isCheckingDisk = true;
+
+    try {
+      const native = (window as any).OfflineMindNative;
+      if (native && typeof native.checkModelStatus === 'function') {
+        // Native Android check
+        const rawJson = native.checkModelStatus(this.activeModel.filename, this.activeModel.sizeBytes);
+        const data = JSON.parse(rawJson);
+        if (data.installed) {
+          this.isModelLoadedInRam = data.loadedInRam;
+          this.updateProgress({
+            status: 'ready',
+            percentage: 100,
+            downloadedBytes: this.activeModel.sizeBytes,
+            totalBytes: this.activeModel.sizeBytes,
+            currentStepDescription: `Модель ${this.activeModel.name} проверена и готова к работе (хранилище Android).`
+          });
+        } else {
+          this.isModelLoadedInRam = false;
+          this.updateProgress({
+            status: 'not_installed',
+            percentage: 0,
+            downloadedBytes: data.fileSizeBytes || 0,
+            totalBytes: this.activeModel.sizeBytes,
+            currentStepDescription: 'Требуется загрузка модели.'
+          });
+        }
+        return;
+      }
+
+      // Check via real server backend
+      const res = await fetch('/api/models');
+      if (res.ok) {
+        const data = await res.json();
+        const serverModel = data.models?.find((m: any) => m.id === this.activeModel.id);
+        if (serverModel && serverModel.installed) {
+          this.isModelLoadedInRam = serverModel.loadedInRam;
+          this.updateProgress({
+            status: 'ready',
+            percentage: 100,
+            downloadedBytes: this.activeModel.sizeBytes,
+            totalBytes: this.activeModel.sizeBytes,
+            currentStepDescription: `Модель ${this.activeModel.name} проверена на диске (${(this.activeModel.sizeBytes / 1024 / 1024).toFixed(1)} МБ). Готова к инференсу.`
+          });
+        } else {
+          const downloadedBytes = serverModel?.actualSizeBytes || 0;
+          const pct = Math.floor((downloadedBytes / this.activeModel.sizeBytes) * 100);
+          this.isModelLoadedInRam = false;
+          this.updateProgress({
+            status: 'not_installed',
+            percentage: pct,
+            downloadedBytes,
+            totalBytes: this.activeModel.sizeBytes,
+            currentStepDescription: downloadedBytes > 0
+              ? `Частично загружено: ${(downloadedBytes / 1024 / 1024).toFixed(1)} МБ (${pct}%). Нажмите «Загрузить» для возобновления.`
+              : 'Требуется первоначальная загрузка модели.'
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not verify model status from backend:', err);
+    } finally {
+      this.isCheckingDisk = false;
+    }
+  }
+
+  public async loadIntoRam(): Promise<boolean> {
+    const native = (window as any).OfflineMindNative;
+    if (native && typeof native.loadModel === 'function') {
+      const ok = native.loadModel(this.activeModel.filename, this.activeModel.contextLength, 4);
+      this.isModelLoadedInRam = ok;
+      this.notifyListeners();
+      return ok;
+    }
+
+    try {
+      const res = await fetch('/api/models/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: this.activeModel.id })
+      });
+      if (res.ok) {
+        this.isModelLoadedInRam = true;
+        this.notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      console.error('Failed to load model into RAM:', e);
+    }
+    return false;
+  }
+
+  public async unloadFromRam(): Promise<void> {
+    const native = (window as any).OfflineMindNative;
+    if (native && typeof native.unloadModel === 'function') {
+      native.unloadModel();
+      this.isModelLoadedInRam = false;
+      this.notifyListeners();
+      return;
+    }
+
+    try {
+      await fetch('/api/models/unload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: this.activeModel.id })
+      });
+    } catch (e) {
+      // ignore
+    }
     this.isModelLoadedInRam = false;
     this.notifyListeners();
   }
 
-  public loadIntoRam(): void {
-    if (this.currentProgress.status === 'ready') {
-      this.isModelLoadedInRam = true;
-      this.notifyListeners();
+  /**
+   * Real HTTPS Download with resume and SHA-256 verification
+   */
+  public async startInstallation(): Promise<void> {
+    if (this.currentProgress.status === 'ready') return;
+
+    const native = (window as any).OfflineMindNative;
+    if (native && typeof native.startModelDownload === 'function') {
+      // Use native Android downloader
+      this.updateProgress({
+        status: 'checking_space',
+        percentage: 1,
+        currentStepDescription: 'Проверка дискового пространства в приватном хранилище Android...'
+      });
+      native.startModelDownload(
+        this.activeModel.downloadUrl,
+        this.activeModel.filename,
+        this.activeModel.sha256,
+        this.activeModel.sizeBytes
+      );
+      return;
     }
+
+    // Full-stack backend download via SSE stream
+    this.downloadAbortController = new AbortController();
+    this.updateProgress({
+      status: 'downloading',
+      percentage: 0,
+      downloadedBytes: 0,
+      totalBytes: this.activeModel.sizeBytes,
+      currentStepDescription: `Подключение к репозиторию для ${this.activeModel.filename}...`
+    });
+
+    try {
+      const response = await fetch('/api/models/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: this.activeModel.id }),
+        signal: this.downloadAbortController.signal
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Поток ответа недоступен');
+
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              this.updateProgress({
+                status: data.status as ModelInstallStatus,
+                percentage: data.percentage,
+                downloadedBytes: data.downloadedBytes,
+                totalBytes: data.totalBytes,
+                speedBytesPerSec: data.speedBytesPerSec,
+                timeRemainingSec: data.timeRemainingSec,
+                currentStepDescription: data.stepDescription
+              });
+
+              if (data.status === 'ready') {
+                await this.loadIntoRam();
+              }
+            } catch (e) {
+              // ignore parse errors
+            }
+          }
+        }
+      }
+
+      await this.verifyModelStatusOnDisk();
+
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        this.updateProgress({
+          status: 'error',
+          errorMessage: err.message || 'Ошибка загрузки модели'
+        });
+      }
+    }
+  }
+
+  public pauseOrCancelDownload(): void {
+    const native = (window as any).OfflineMindNative;
+    if (native && typeof native.cancelDownload === 'function') {
+      native.cancelDownload();
+    }
+
+    if (this.downloadAbortController) {
+      this.downloadAbortController.abort();
+      this.downloadAbortController = null;
+    }
+
+    fetch('/api/models/cancel-download', { method: 'POST' }).catch(() => {});
+
+    this.updateProgress({
+      status: 'paused',
+      currentStepDescription: 'Загрузка приостановлена. Нажмите «Возобновить», чтобы продолжить с сохранённой позиции.'
+    });
+  }
+
+  public async uninstallModel(): Promise<void> {
+    this.pauseOrCancelDownload();
+    const native = (window as any).OfflineMindNative;
+    if (native && typeof native.deleteModel === 'function') {
+      native.deleteModel(this.activeModel.filename);
+    } else {
+      await fetch(`/api/models/${this.activeModel.id}`, { method: 'DELETE' }).catch(() => {});
+    }
+
+    this.isModelLoadedInRam = false;
+    this.currentProgress = {
+      status: 'not_installed',
+      percentage: 0,
+      downloadedBytes: 0,
+      totalBytes: this.activeModel.sizeBytes,
+      speedBytesPerSec: 0,
+      timeRemainingSec: 0,
+      currentStepDescription: 'Файл модели удалён из хранилища.'
+    };
+    this.notifyListeners();
   }
 
   public subscribe(listener: (progress: ModelInstallProgress) => void): () => void {
@@ -140,155 +386,51 @@ export class ModelManager {
     }
   }
 
-  /**
-   * Executes the strict 10-step model installation workflow as defined in section 6 of ТЗ:
-   * 1. Check disk space (HONOR NIC-LX1 ~180 GB free).
-   * 2. Show model name & payload size.
-   * 3. Download model from verified HTTPS endpoint with resume capability.
-   * 4. Stream real-time progress, speed, and ETA.
-   * 5. Support pause/resume.
-   * 6. Verify SHA-256 cryptographic checksum.
-   * 7. Atomically commit file to private app storage.
-   * 8. Verify llama.cpp engine initialization and model load.
-   * 9. Run warm-up smoke test query ("1 дм = ? см").
-   * 10. Mark status as Ready.
-   */
-  public async startInstallation(): Promise<void> {
-    if (this.currentProgress.status === 'ready') return;
-
-    this.downloadAbortController = new AbortController();
-    const model = this.activeModel;
-
-    try {
-      // Step 1: Disk check
-      this.updateProgress({
-        status: 'checking_space',
-        percentage: 2,
-        currentStepDescription: 'Шаг 1/10: Проверка доступного дискового пространства на HONOR NIC-LX1 (требуется ~1 ГБ, свободно 182.4 ГБ)...'
-      });
-      await new Promise(r => setTimeout(r, 600));
-
-      // Step 2 & 3: Downloading with resume capability
-      let downloaded = this.currentProgress.downloadedBytes;
-      const total = model.sizeBytes;
-      const simulatedSpeed = 85 * 1024 * 1024; // ~85 MB/s fast chunk download simulation for smooth UX
-      const updateIntervalMs = 120;
-
-      this.updateProgress({
-        status: 'downloading',
-        percentage: Math.floor((downloaded / total) * 80),
-        totalBytes: total,
-        currentStepDescription: `Шаг 3-4/10: Загрузка ${model.filename} по защищённому протоколу HTTPS с поддержкой докачки...`
-      });
-
-      while (downloaded < total) {
-        if (this.downloadAbortController?.signal.aborted) {
-          return;
-        }
-
-        const chunk = Math.min(simulatedSpeed * (updateIntervalMs / 1000), total - downloaded);
-        downloaded += chunk;
-        const progressPct = Math.min(80, Math.floor((downloaded / total) * 80));
-        const remainingBytes = total - downloaded;
-        const timeRemaining = Math.ceil(remainingBytes / simulatedSpeed);
-
-        this.updateProgress({
-          status: 'downloading',
-          percentage: progressPct,
-          downloadedBytes: downloaded,
-          totalBytes: total,
-          speedBytesPerSec: simulatedSpeed,
-          timeRemainingSec: timeRemaining,
-          currentStepDescription: `Загрузка весов модели: ${(downloaded / 1024 / 1024).toFixed(1)} МБ из ${(total / 1024 / 1024).toFixed(1)} МБ (${progressPct}%)`
-        });
-
-        await new Promise(r => setTimeout(r, updateIntervalMs));
-      }
-
-      // Step 6: Verifying SHA-256 Checksum
-      this.updateProgress({
-        status: 'verifying_checksum',
-        percentage: 85,
-        speedBytesPerSec: 0,
-        timeRemainingSec: 0,
-        currentStepDescription: `Шаг 6/10: Проверка контрольной суммы SHA-256 (${model.sha256.substring(0, 16)}...)...`
-      });
-      await new Promise(r => setTimeout(r, 700));
-
-      // Step 7: Atomic Move to App Storage
-      this.updateProgress({
-        status: 'moving_to_storage',
-        percentage: 90,
-        currentStepDescription: 'Шаг 7/10: Атомарное перемещение файла в приватный каталог /data/user/0/com.offlineknowledge.app/files/models/...'
-      });
-      await new Promise(r => setTimeout(r, 500));
-
-      // Step 8: Warming llama.cpp Engine
-      this.updateProgress({
-        status: 'warming_engine',
-        percentage: 95,
-        currentStepDescription: 'Шаг 8/10: Инициализация llama.cpp JNI контекста и выделение безопасного буфера RAM...'
-      });
-      await new Promise(r => setTimeout(r, 600));
-
-      // Step 9: Smoke Test Query
-      this.updateProgress({
-        status: 'running_test_query',
-        percentage: 98,
-        currentStepDescription: 'Шаг 9/10: Выполнение тестового запроса: «Сколько сантиметров в дециметре?»...'
-      });
-      await new Promise(r => setTimeout(r, 800));
-
-      // Step 10: Complete & Ready
-      localStorage.setItem(STORAGE_KEYS.MODEL_INSTALLED_PREFIX + model.id, 'true');
-      this.isModelLoadedInRam = true;
-
-      this.updateProgress({
-        status: 'ready',
-        percentage: 100,
-        downloadedBytes: total,
-        currentStepDescription: `Шаг 10/10: Готово! Локальная модель ${model.name} активна и работает полностью офлайн.`,
-        testQueryOutput: 'Тест пройден успешно: В одном дециметре ровно 10 сантиметров (0.1 метра).'
-      });
-
-    } catch (err) {
-      this.updateProgress({
-        status: 'error',
-        errorMessage: err instanceof Error ? err.message : 'Ошибка установки модели'
-      });
-    }
-  }
-
-  public pauseOrCancelDownload(): void {
-    if (this.downloadAbortController) {
-      this.downloadAbortController.abort();
-      this.downloadAbortController = null;
-    }
-    this.updateProgress({
-      status: 'paused',
-      currentStepDescription: 'Загрузка приостановлена. Нажмите «Продолжить», чтобы возобновить с текущей позиции.'
-    });
-  }
-
-  public uninstallModel(): void {
-    this.pauseOrCancelDownload();
-    const model = this.activeModel;
-    localStorage.removeItem(STORAGE_KEYS.MODEL_INSTALLED_PREFIX + model.id);
-    this.isModelLoadedInRam = false;
-    this.currentProgress = {
-      status: 'not_installed',
-      percentage: 0,
-      downloadedBytes: 0,
-      totalBytes: model.sizeBytes,
-      speedBytesPerSec: 0,
-      timeRemainingSec: 0,
-      currentStepDescription: 'Модель удалена из хранилища. Доступно для новой загрузки.'
-    };
-    this.notifyListeners();
-  }
-
   private updateProgress(patch: Partial<ModelInstallProgress>): void {
     this.currentProgress = { ...this.currentProgress, ...patch };
     this.notifyListeners();
+  }
+
+  private handleNativeDownloadState(detail: any): void {
+    switch (detail.type) {
+      case 'checking_space':
+        this.updateProgress({
+          status: 'checking_space',
+          currentStepDescription: `Проверка места: свободно ${(detail.freeBytes / 1024 / 1024).toFixed(0)} МБ`
+        });
+        break;
+      case 'progress':
+        this.updateProgress({
+          status: 'downloading',
+          percentage: detail.percent,
+          downloadedBytes: detail.downloadedBytes,
+          totalBytes: detail.totalBytes,
+          speedBytesPerSec: detail.speedBytesPerSec,
+          timeRemainingSec: detail.timeRemainingSec,
+          currentStepDescription: detail.stepDescription
+        });
+        break;
+      case 'verifying_checksum':
+        this.updateProgress({
+          status: 'verifying_checksum',
+          percentage: 95,
+          currentStepDescription: `Проверка контрольной суммы SHA-256 (${detail.expectedSha256.substring(0, 16)}...)...`
+        });
+        break;
+      case 'ready':
+        this.updateProgress({
+          status: 'ready',
+          percentage: 100,
+          currentStepDescription: `Модель успешно сохранена в хранилище: ${detail.filePath}`
+        });
+        this.loadIntoRam();
+        break;
+      case 'error':
+        this.updateProgress({
+          status: 'error',
+          errorMessage: detail.errorMessage
+        });
+        break;
+    }
   }
 }
