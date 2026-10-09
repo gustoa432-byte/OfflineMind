@@ -151,21 +151,16 @@ Java_com_offlineknowledge_app_engine_LlamaNative_generateStream(
         llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
     }
 
-    // Initialize batch
-    llama_batch_ext* batch = llama_batch_ext_init(g_ctx);
-    llama_batch_ext_clear(batch);
-
+    // Initialize standard batch
+    llama_batch batch = llama_batch_init(prompt_tokens.size(), 0, 1);
     for (size_t i = 0; i < prompt_tokens.size(); ++i) {
-        int32_t idx = llama_batch_ext_add_token(batch, 0, prompt_tokens[i]);
-        llama_pos pos = (llama_pos)i;
-        llama_batch_ext_set_pos(batch, idx, &pos);
+        llama_batch_add(batch, prompt_tokens[i], i, { 0 }, i == prompt_tokens.size() - 1);
     }
-    llama_batch_ext_set_output_logits(batch, (int32_t)(prompt_tokens.size() - 1), true);
 
     // Decode initial prompt batch
-    if (llama_process(g_ctx, LLAMA_PROCESS_TYPE_DECODE, batch) != 0) {
+    if (llama_decode(g_ctx, batch) != 0) {
         LOGE("Failed to eval initial prompt tokens");
-        llama_batch_ext_free(batch);
+        llama_batch_free(batch);
         llama_sampler_free(smpl);
         return JNI_FALSE;
     }
@@ -195,12 +190,10 @@ Java_com_offlineknowledge_app_engine_LlamaNative_generateStream(
         }
 
         // Prepare next single token batch
-        llama_batch_ext_clear(batch);
-        int32_t idx = llama_batch_ext_add_token(batch, 0, new_token_id);
-        llama_batch_ext_set_pos(batch, idx, &current_pos);
-        llama_batch_ext_set_output_logits(batch, 0, true);
+        llama_batch_clear(batch);
+        llama_batch_add(batch, new_token_id, current_pos, { 0 }, true);
 
-        if (llama_process(g_ctx, LLAMA_PROCESS_TYPE_DECODE, batch) != 0) {
+        if (llama_decode(g_ctx, batch) != 0) {
             LOGE("Failed to eval token in loop");
             break;
         }
@@ -209,7 +202,7 @@ Java_com_offlineknowledge_app_engine_LlamaNative_generateStream(
         n_decode++;
     }
 
-    llama_batch_ext_free(batch);
+    llama_batch_free(batch);
     llama_sampler_free(smpl);
     return JNI_TRUE;
 }
