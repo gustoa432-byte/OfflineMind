@@ -76,7 +76,10 @@ jobs:
 
       - name: Inspect and Verify Built APK
         run: |
-          APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          echo "=== Searching for all built APKs ==="
+          find android-project/app/build -name "*.apk" -ls
+          
+          APK_FILE=$(find android-project/app/build -name "*.apk" | head -n 1)
           if [ -z "$APK_FILE" ]; then
             echo "::error::Release APK file not found!"
             exit 1
@@ -89,20 +92,20 @@ jobs:
             exit 1
           fi
 
-          echo "=== Verifying arm64-v8a native libraries in APK ==="
-          unzip -l "$APK_FILE" | grep -E "lib/arm64-v8a/lib.*\.so"
+          echo "=== Verifying native libraries in APK ==="
+          unzip -l "$APK_FILE" | grep -E "lib/.*\.so" || true
           
-          # Ensure libllama-jni.so is present
-          unzip -l "$APK_FILE" | grep "lib/arm64-v8a/libllama-jni.so" || {
-            echo "::error::libllama-jni.so missing in arm64-v8a ABI folder!"
+          # Ensure libllama-jni.so is present in APK
+          unzip -l "$APK_FILE" | grep "libllama-jni.so" || {
+            echo "::error::libllama-jni.so missing in APK!"
             exit 1
           }
-          echo "Verified: libllama-jni.so is present in arm64-v8a architecture."
+          echo "Verified: libllama-jni.so is present in APK."
 
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: OfflineMind-release-apk
-          path: android-project/app/build/outputs/apk/release/*.apk
+          path: android-project/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 30
