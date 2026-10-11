@@ -72,7 +72,7 @@ jobs:
       - name: Build Release APK
         working-directory: android-project
         run: |
-          ./gradlew assembleRelease --stacktrace --no-daemon
+          ./gradlew assembleRelease --stacktrace --info --no-daemon
 
       - name: Inspect and Verify Built APK
         run: |

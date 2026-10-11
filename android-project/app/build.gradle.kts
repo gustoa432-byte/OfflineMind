@@ -28,7 +28,10 @@ android {
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
                     "-DLLAMA_BUILD_EXAMPLES=OFF",
-                    "-DLLAMA_BUILD_TESTS=OFF"
+                    "-DLLAMA_BUILD_TESTS=OFF",
+                    "-DLLAMA_BUILD_TOOLS=OFF",
+                    "-DLLAMA_BUILD_SERVER=OFF",
+                    "-DBUILD_SHARED_LIBS=OFF"
                 )
             }
         }
