@@ -97,21 +97,62 @@ export class LocalInferenceEngine {
       );
     }
 
-    // Step 2: Construct real prompt for Qwen2.5-Instruct
-    let prompt = '';
-    if (matchedEntry) {
-      const knowledgeContext = [
-        `ПОНЯТИЕ: ${matchedEntry.canonicalTitle}`,
-        `ОПРЕДЕЛЕНИЕ: ${matchedEntry.definition}`,
-        matchedEntry.formulas?.length ? `ФОРМУЛЫ: ${matchedEntry.formulas.join('; ')}` : '',
-        matchedEntry.conversionFactors?.length ? `СООТНОШЕНИЯ: ${matchedEntry.conversionFactors.map((c: { unit: string; ratio: string }) => `1 ${matchedEntry.canonicalTitle.split(' ')[0]} = ${c.ratio} (${c.unit})`).join('; ')}` : '',
-        matchedEntry.examples?.length ? `ПРИМЕР: ${matchedEntry.examples[0]}` : ''
-      ].filter(Boolean).join('\n');
-
-      prompt = `<|im_start|>system\nТы — OfflineMind, персональный офлайн-справочник на устройстве HONOR NIC-LX1. Используй приведённые проверенные факты для точного, ясного и полного объяснения на русском языке:\n${knowledgeContext}<|im_end|>\n<|im_start|>user\n${query}<|im_end|>\n<|im_start|>assistant\n`;
-    } else {
-      prompt = `<|im_start|>system\nТы — OfflineMind, персональный офлайн-справочник по точным наукам. Ответь на вопрос пользователя чётко, строго и понятно на русском языке.<|im_end|>\n<|im_start|>user\n${query}<|im_end|>\n<|im_start|>assistant\n`;
+    // Step 2: Construct prompt per ТЗ (Strict adherence to facts & refusal on not found)
+    if (!matchedEntry) {
+      const refusalText = 'В локальном справочнике этого понятия пока нет.\nПопробуйте сформулировать иначе или скачать обновление справочника, когда оно появится.';
+      const dummyMetrics: InferenceMetrics = {
+        ttftMs: 5,
+        totalTimeMs: 15,
+        tokensGenerated: 0,
+        tokensPerSec: 0,
+        wordsPerMinute: 0,
+        memoryRssMb: 0,
+        peakMemoryMb: 0
+      };
+      onChunk({
+        fullText: refusalText,
+        deltaText: refusalText,
+        isComplete: true,
+        metrics: dummyMetrics
+      });
+      return {
+        answerText: refusalText,
+        matchedEntry: undefined,
+        isVerifiedKnowledge: false,
+        metrics: dummyMetrics,
+        followUpQuestions: [
+          'Как скачать обновление справочника?',
+          'Какие понятия уже есть в справочнике?'
+        ]
+      };
     }
+
+    const factsContext = [
+      `ПОНЯТИЕ: ${matchedEntry.canonicalTitle}`,
+      `ОПРЕДЕЛЕНИЕ: ${matchedEntry.definition}`,
+      `ПРОСТОЕ ОБЪЯСНЕНИЕ: ${matchedEntry.simpleExplanation}`,
+      matchedEntry.formulas?.length ? `ФОРМУЛЫ: ${matchedEntry.formulas.join('; ')}` : '',
+      matchedEntry.doNotConfuseWith ? `НЕ ПУТАТЬ С: ${matchedEntry.doNotConfuseWith.term} (${matchedEntry.doNotConfuseWith.difference})` : '',
+      matchedEntry.examples?.length ? `ПРИМЕР: ${matchedEntry.examples[0]}` : ''
+    ].filter(Boolean).join('\n');
+
+    const prompt = `<|im_start|>system
+Ты — OfflineMind, офлайн-справочник по математике на устройстве пользователя.
+Отвечай ТОЛЬКО на русском языке.
+Используй ТОЛЬКО приведённые ниже факты. Ничего не выдумывай и не добавляй от себя.
+Если фактов недостаточно для полного ответа — скажи об этом прямо.
+
+Структура ответа:
+1) Простыми словами
+2) Правило или формула (если есть)
+3) Короткий пример (если уместно)
+
+ФАКТЫ:
+${factsContext}<|im_end|>
+<|im_start|>user
+${query}<|im_end|>
+<|im_start|>assistant
+`;
 
     // Step 3: Stream tokens from real llama engine
     const native = (window as any).OfflineMindNative;

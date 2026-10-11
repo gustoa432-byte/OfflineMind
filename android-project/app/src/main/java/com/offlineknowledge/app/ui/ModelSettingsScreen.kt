@@ -273,8 +273,8 @@ fun ModelSettingsScreen(
                                             try {
                                                 val testPrompt = "В одном дециметре ровно "
                                                 var ans = ""
-                                                repository.answerQuestion(testPrompt).collect { (c, _) ->
-                                                    ans = c.fullText
+                                                repository.answerQuestion(testPrompt).collect { res ->
+                                                    ans = res.chunk.fullText
                                                 }
                                                 testQueryResult = ans
                                             } catch (e: Exception) {

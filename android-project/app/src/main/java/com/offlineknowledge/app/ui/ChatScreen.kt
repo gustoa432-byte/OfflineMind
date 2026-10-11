@@ -23,10 +23,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.offlineknowledge.app.data.KnowledgeChunkEntity
 import com.offlineknowledge.app.data.KnowledgeEntity
 import com.offlineknowledge.app.engine.GenerationMetrics
 import com.offlineknowledge.app.repository.ModelRuntimeState
 import com.offlineknowledge.app.repository.OfflineMindRepository
+import com.offlineknowledge.app.repository.PackRuntimeState
 import kotlinx.coroutines.launch
 
 data class ChatMessage(
@@ -34,6 +36,8 @@ data class ChatMessage(
     val isUser: Boolean,
     val text: String,
     val matchedEntry: KnowledgeEntity? = null,
+    val matchedChunk: KnowledgeChunkEntity? = null,
+    val isNotFoundInPack: Boolean = false,
     val metrics: GenerationMetrics? = null,
     val isStreaming: Boolean = false
 )
@@ -44,20 +48,24 @@ val QUICK_SUGGESTIONS = listOf(
     "Что такое сотка и сколько в ней кв. метров?",
     "Чем акр отличается от гектара?",
     "Как называется число, которое делят?",
-    "Какова плотность воды и формула плотности?"
+    "Что такое арифметический квадратный корень?",
+    "Формула корней квадратного уравнения через дискриминант",
+    "Теорема Пифагора и формула гипотенузы"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     repository: OfflineMindRepository,
-    onNavigateToModelSettings: () -> Unit
+    onNavigateToModelSettings: () -> Unit,
+    onNavigateToKnowledgePack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val clipboardManager = LocalClipboardManager.current
 
     val runtimeState by repository.runtimeState.collectAsState()
+    val packState by repository.packState.collectAsState()
     val activeModel by repository.selectedModel.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
@@ -65,6 +73,7 @@ fun ChatScreen(
     val messages = remember { mutableStateListOf<ChatMessage>() }
 
     val isModelReady = runtimeState is ModelRuntimeState.Ready
+    val isPackReady = packState is PackRuntimeState.Ready
 
     val submitQuestion = { question: String ->
         val q = question.trim()
@@ -85,14 +94,16 @@ fun ChatScreen(
             scope.launch {
                 listState.animateScrollToItem(messages.size - 1)
                 try {
-                    repository.answerQuestion(q).collect { (chunk, entry) ->
+                    repository.answerQuestion(q).collect { result ->
                         if (assistantMsgIndex < messages.size) {
                             messages[assistantMsgIndex] = ChatMessage(
                                 isUser = false,
-                                text = chunk.fullText,
-                                matchedEntry = entry,
-                                metrics = chunk.metrics,
-                                isStreaming = !chunk.metrics.isComplete
+                                text = result.chunk.fullText,
+                                matchedEntry = result.matchedEntry,
+                                matchedChunk = result.matchedChunk,
+                                isNotFoundInPack = result.isNotFoundInPack,
+                                metrics = result.chunk.metrics,
+                                isStreaming = !result.chunk.metrics.isComplete
                             )
                         }
                         listState.animateScrollToItem(messages.size - 1)
@@ -101,7 +112,7 @@ fun ChatScreen(
                     if (assistantMsgIndex < messages.size) {
                         messages[assistantMsgIndex] = ChatMessage(
                             isUser = false,
-                            text = "Ошибка инференса: ${e.message}\nПроверьте состояние модели во вкладке «Модель».",
+                            text = "Ошибка: ${e.message}\nПроверьте состояние модели и справочника в настройках.",
                             isStreaming = false
                         )
                     }
@@ -126,11 +137,11 @@ fun ChatScreen(
                             Spacer(Modifier.width(8.dp))
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (isModelReady) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFF59E0B).copy(alpha = 0.2f),
-                                contentColor = if (isModelReady) Color(0xFF10B981) else Color(0xFFF59E0B)
+                                color = if (isModelReady && isPackReady) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFF59E0B).copy(alpha = 0.2f),
+                                contentColor = if (isModelReady && isPackReady) Color(0xFF10B981) else Color(0xFFF59E0B)
                             ) {
                                 Text(
-                                    text = if (isModelReady) "100% Офлайн" else "Требуется модель",
+                                    text = if (isModelReady && isPackReady) "100% Офлайн" else if (!isModelReady) "Требуется модель" else "Требуется справочник",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Medium,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -138,13 +149,16 @@ fun ChatScreen(
                             }
                         }
                         Text(
-                            text = "${activeModel.name} • MediaTek Helio G81 Ultra",
+                            text = "${activeModel.name} • MediaTek Helio G81 Ultra (6 ГБ RAM)",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToKnowledgePack) {
+                        Icon(Icons.Default.MenuBook, contentDescription = "Справочник")
+                    }
                     IconButton(onClick = onNavigateToModelSettings) {
                         Icon(Icons.Default.Memory, contentDescription = "Параметры модели")
                     }
@@ -158,9 +172,9 @@ fun ChatScreen(
                     .background(MaterialTheme.colorScheme.surface)
                     .padding(8.dp)
             ) {
-                if (messages.isEmpty() && isModelReady) {
+                if (messages.isEmpty() && isModelReady && isPackReady) {
                     Text(
-                        "Популярные вопросы из справочника:",
+                        "Вопросы для быстрой проверки:",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
@@ -186,9 +200,13 @@ fun ChatScreen(
                         value = inputText,
                         onValueChange = { inputText = it },
                         placeholder = {
-                            Text(if (isModelReady) "Задайте вопрос по математике или физике..." else "Сначала установите модель...")
+                            Text(
+                                if (!isModelReady) "Сначала скачайте модель..."
+                                else if (!isPackReady) "Сначала скачайте справочник..."
+                                else "Задайте вопрос своими словами..."
+                            )
                         },
-                        enabled = isModelReady && !isGenerating,
+                        enabled = isModelReady && isPackReady && !isGenerating,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(24.dp),
                         colors = TextFieldDefaults.colors(
@@ -211,7 +229,7 @@ fun ChatScreen(
                     } else {
                         FilledIconButton(
                             onClick = { submitQuestion(inputText) },
-                            enabled = isModelReady && inputText.isNotBlank()
+                            enabled = isModelReady && isPackReady && inputText.isNotBlank()
                         ) {
                             Icon(Icons.Default.Send, contentDescription = "Отправить")
                         }
@@ -251,7 +269,7 @@ fun ChatScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Для автономной работы без интернета требуется однократная загрузка файла модели ${activeModel.name} (${activeModel.sizeFormatted}) с проверкой SHA-256.",
+                            "Для автономного ответа на вопросы требуется локальная модель ${activeModel.name} (${activeModel.sizeFormatted}) с проверкой SHA-256.",
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 18.sp
@@ -260,7 +278,46 @@ fun ChatScreen(
                         Button(onClick = onNavigateToModelSettings) {
                             Icon(Icons.Default.Download, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Перейти к установке")
+                            Text("Скачать модель")
+                        }
+                    }
+                }
+            } else if (!isPackReady) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .align(Alignment.Center),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.MenuBook,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Справочник знаний не загружен",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Справочник знаний (knowledge_pack_v1.json) не вшит в APK и скачивается отдельно. Он содержит точные математические определения и фрагменты учебника 6–11 классов.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Button(onClick = onNavigateToKnowledgePack) {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Скачать справочник")
                         }
                     }
                 }
@@ -273,20 +330,20 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        Icons.Default.Science,
+                        Icons.Default.Calculate,
                         contentDescription = null,
                         modifier = Modifier.size(56.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "Офлайн-справочник готов",
+                        "OfflineMind готов к работе",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Все вычисления и поиск выполняются локально на чипе MediaTek Helio G81 Ultra (6 ГБ RAM). Интернет полностью отключён.",
+                        "Задайте любой математический вопрос. Система сначала найдёт проверенные факты в локальной базе знаний, а затем нейросеть ${activeModel.name} объяснит их простыми словами без галлюцинаций.",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp
@@ -358,23 +415,69 @@ fun ChatMessageItem(
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                text = "Проверенные данные: ${message.matchedEntry.canonicalTitle}",
+                                text = "Проверенные факты: ${message.matchedEntry.canonicalTitle}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF0284C7)
                             )
                         }
                         Spacer(Modifier.height(8.dp))
+                    } else if (message.matchedChunk != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF8B5CF6).copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.AutoStories,
+                                contentDescription = null,
+                                tint = Color(0xFF8B5CF6),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Учебник (${message.matchedChunk.grade} класс): ${message.matchedChunk.title}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF8B5CF6)
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    } else if (message.isNotFoundInPack) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFFF59E0B).copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Нет в локальном справочнике (отказ от выдумки)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFF59E0B)
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
                     }
 
                     Text(
-                        text = if (message.text.isBlank() && message.isStreaming) "Обработка запроса на устройстве..." else message.text,
+                        text = if (message.text.isBlank() && message.isStreaming) "Поиск фактов и инференс на устройстве..." else message.text,
                         fontSize = 14.sp,
                         lineHeight = 21.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
 
-                    if (message.metrics != null) {
+                    if (message.metrics != null && !message.isNotFoundInPack) {
                         Spacer(Modifier.height(10.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         Spacer(Modifier.height(6.dp))

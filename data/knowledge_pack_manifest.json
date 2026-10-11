@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "filename": "knowledge_pack_v1.json",
+  "sizeBytes": 163432,
+  "sha256": "776da5184936fe2a77a7873798dd4cbc542d7f68fe9dd3b8a09b22b0f34b90d4",
+  "downloadUrl": "/api/knowledge/pack/download",
+  "entriesCount": 54,
+  "chunksCount": 20,
+  "updatedAt": "2026-10-11"
+}

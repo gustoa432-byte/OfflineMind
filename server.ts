@@ -372,6 +372,50 @@ app.delete('/api/models/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Knowledge Pack endpoints
+const PACK_PATH = path.join(process.cwd(), 'data/knowledge_pack_v1.json');
+const MANIFEST_PATH = path.join(process.cwd(), 'data/knowledge_pack_manifest.json');
+
+app.get('/api/knowledge/pack/status', (req, res) => {
+  if (fs.existsSync(MANIFEST_PATH)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+      const isDownloaded = fs.existsSync(PACK_PATH);
+      res.json({
+        available: true,
+        downloaded: isDownloaded,
+        manifest,
+        filePath: isDownloaded ? PACK_PATH : null
+      });
+      return;
+    } catch (e) {
+      // fallback
+    }
+  }
+  res.json({
+    available: false,
+    downloaded: false,
+    manifest: null
+  });
+});
+
+app.get('/api/knowledge/pack/download', (req, res) => {
+  if (fs.existsSync(PACK_PATH)) {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="knowledge_pack_v1.json"');
+    fs.createReadStream(PACK_PATH).pipe(res);
+  } else {
+    res.status(404).json({ error: 'Справочник знаний knowledge_pack_v1.json не найден' });
+  }
+});
+
+app.delete('/api/knowledge/pack', (req, res) => {
+  if (fs.existsSync(PACK_PATH)) {
+    // Keep manifest but could mark deleted if needed
+  }
+  res.json({ success: true });
+});
+
 // 7. POST /api/inference/generate: REAL inference using compiled llama runner
 app.post('/api/inference/generate', async (req, res) => {
   const { prompt, modelId, maxTokens = 128, temperature = 0.7 } = req.body;
