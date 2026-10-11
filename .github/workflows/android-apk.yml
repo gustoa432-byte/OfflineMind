@@ -28,15 +28,30 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
 
-      - name: Set up Android SDK & NDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Install NDK and CMake Components
+      - name: Configure Android SDK and Accept Licenses
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager --install "ndk;26.3.11579264" "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0"
+          echo "=== Android SDK Configuration ==="
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          
+          # Find sdkmanager binary
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name "sdkmanager" -type f -perm /111 2>/dev/null | head -n 1)
+          fi
+          echo "Found sdkmanager at: $SDKMANAGER"
+
+          # Accept all SDK and NDK licenses
+          yes | "$SDKMANAGER" --licenses || true
+
+          # Ensure CMake 3.22.1 and required Android 35 platform/build-tools are available
+          "$SDKMANAGER" --install "cmake;3.22.1" "platforms;android-35" "build-tools;35.0.0" || true
+
+          echo "=== Available NDKs in runner ==="
+          ls -la "$ANDROID_HOME/ndk" 2>/dev/null || echo "None found in $ANDROID_HOME/ndk"
 
       - name: Make Gradle Wrapper Executable
         run: chmod +x android-project/gradlew
@@ -45,7 +60,7 @@ jobs:
         run: |
           LLAMA_DIR="android-project/app/src/main/cpp/llama.cpp"
           if [ ! -f "$LLAMA_DIR/include/llama.h" ] || [ ! -f "$LLAMA_DIR/src/CMakeLists.txt" ] || [ ! -f "$LLAMA_DIR/ggml/CMakeLists.txt" ]; then
-            echo "llama.cpp sources not found or incomplete in git clone. Downloading official release v0.6.0..."
+            echo "llama.cpp sources not found or incomplete. Downloading release v0.6.0..."
             mkdir -p "$LLAMA_DIR"
             curl -L "https://github.com/ggml-org/llama.cpp/archive/refs/tags/v0.6.0.tar.gz" | tar -xzf - --strip-components=1 -C "$LLAMA_DIR"
           fi

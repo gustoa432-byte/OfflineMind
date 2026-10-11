@@ -1,7 +1,7 @@
 export interface KnowledgeEntry {
   id: string;
   canonicalTitle: string;
-  category: 'arithmetic' | 'geometry' | 'units_length' | 'units_area' | 'units_mass' | 'units_volume' | 'units_time_speed';
+  category: 'arithmetic' | 'algebra' | 'geometry' | 'calculus' | 'trigonometry' | 'probability' | 'linear_algebra' | 'units_length' | 'units_area' | 'units_mass' | 'units_volume' | 'units_time_speed' | string;
   categoryNameRu: string;
   definition: string;
   simpleExplanation: string;
@@ -15,7 +15,7 @@ export interface KnowledgeEntry {
   conversionFactors?: { unit: string; ratio: string }[];
   commonMisconceptions?: string[];
   source: string;
-  verificationDate: string;
+  verificationDate?: string;
   keywords: string[];
 }
 

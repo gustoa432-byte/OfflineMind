@@ -1,6 +1,11 @@
 import { KnowledgeEntry } from '../types';
+import { ARITHMETIC_ENTRIES } from './mathEntries/arithmeticEntries';
+import { ALGEBRA_ENTRIES } from './mathEntries/algebraEntries';
+import { GEOMETRY_ENTRIES } from './mathEntries/geometryEntries';
+import { CALCULUS_TRIG_ENTRIES } from './mathEntries/calculusTrigEntries';
+import { PROBABILITY_LINEAR_ENTRIES } from './mathEntries/probabilityLinearEntries';
 
-export const VERIFIED_KNOWLEDGE_BASE: KnowledgeEntry[] = [
+const BASE_VERIFIED_KNOWLEDGE_BASE: KnowledgeEntry[] = [
   {
     id: 'area_vs_perimeter',
     canonicalTitle: 'Площадь и Периметр',
@@ -501,4 +506,14 @@ export const VERIFIED_KNOWLEDGE_BASE: KnowledgeEntry[] = [
       'сколько промилле в проценте', 'знак промилле', 'разница между процентом и промилле'
     ]
   }
+];
+
+// Combine base entries with expanded mathematical categories (Arithmetic, Algebra, Geometry, Calculus, Trigonometry, Probability, Linear Algebra)
+export const VERIFIED_KNOWLEDGE_BASE: KnowledgeEntry[] = [
+  ...BASE_VERIFIED_KNOWLEDGE_BASE,
+  ...(ARITHMETIC_ENTRIES as KnowledgeEntry[]),
+  ...(ALGEBRA_ENTRIES as KnowledgeEntry[]),
+  ...(GEOMETRY_ENTRIES as KnowledgeEntry[]),
+  ...(CALCULUS_TRIG_ENTRIES as KnowledgeEntry[]),
+  ...(PROBABILITY_LINEAR_ENTRIES as KnowledgeEntry[])
 ];
