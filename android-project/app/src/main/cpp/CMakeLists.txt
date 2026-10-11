@@ -3,6 +3,14 @@ project(offline_knowledge_llama)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Настройки для сборки компактной мобильной библиотеки llama.cpp
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Do not build examples" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Do not build tests" FORCE)
+set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "Do not build tools" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Do not build server" FORCE)
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build common library" FORCE)
+set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
+
 # Добавляем исходники llama.cpp и GGML
 add_subdirectory(llama.cpp)
 

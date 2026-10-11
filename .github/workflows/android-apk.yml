@@ -41,6 +41,19 @@ jobs:
       - name: Make Gradle Wrapper Executable
         run: chmod +x android-project/gradlew
 
+      - name: Ensure llama.cpp Sources Are Present
+        run: |
+          LLAMA_DIR="android-project/app/src/main/cpp/llama.cpp"
+          if [ ! -f "$LLAMA_DIR/include/llama.h" ] || [ ! -f "$LLAMA_DIR/src/CMakeLists.txt" ] || [ ! -f "$LLAMA_DIR/ggml/CMakeLists.txt" ]; then
+            echo "llama.cpp sources not found or incomplete in git clone. Downloading official release v0.6.0..."
+            mkdir -p "$LLAMA_DIR"
+            curl -L "https://github.com/ggml-org/llama.cpp/archive/refs/tags/v0.6.0.tar.gz" | tar -xzf - --strip-components=1 -C "$LLAMA_DIR"
+          fi
+          echo "Verified llama.cpp sources:"
+          test -f "$LLAMA_DIR/include/llama.h" && echo "✓ include/llama.h exists"
+          test -f "$LLAMA_DIR/src/CMakeLists.txt" && echo "✓ src/CMakeLists.txt exists"
+          test -f "$LLAMA_DIR/ggml/CMakeLists.txt" && echo "✓ ggml/CMakeLists.txt exists"
+
       - name: Build Release APK
         working-directory: android-project
         run: |
